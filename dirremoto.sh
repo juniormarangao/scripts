@@ -27,10 +27,10 @@
 #
 
 ######### Teste se é ROOT ###########
-if [[ $(id -u) -ne 0 ]]; then		#
-	echo -e "\nSOMENTE ROOT\n"		#
-	exit 1							#
-fi									#
+if [[ $(id -u) -ne 0 ]]; then
+	echo -e "\nSOMENTE ROOT\n"
+	exit 1
+fi
 #####################################
 
 read -p "Entre com o diretorio remoto: " remoteDir # Não precisa usar "//" no início
