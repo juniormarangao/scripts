@@ -73,8 +73,13 @@ Limpeza com Autoclean e Clean
 apt-get autoclean >> $LOG
 apt-get clean
 
+# PEGA TEMPERATURA DOS CORES DO PROCESSADOR
+# Neste caso abaixo está pegando apenas de um processador
+# com 2 cores, caso seu PC tenha mais, adicione mais linhas
+# como as seguintes
 tempCore1=$(sensors | grep Core | awk -F: '{print $2}' | cut -d '+' -f2 | cut -d ' ' -f1 | sed -n '1p')
 tempCore2=$(sensors | grep Core | awk -F: '{print $2}' | cut -d '+' -f2 | cut -d ' ' -f1 | sed -n '2p')
+#############################################################
 
 echo "
 A temperatura do Core 1 é $tempCore1 e do Core 2 $tempCore2
