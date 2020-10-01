@@ -40,7 +40,8 @@ while [[ "1" -gt "0" ]]; do
 	fi
 	if [[ "$armazenaIP" != "$buscaIP4" ]]; then
 		armazenaIP="$buscaIP4"
-		echo -e "\nSeu IP Público mudou, agora é: $armazenaIP
+		echo "
+		Seu IP Público mudou, agora é: $armazenaIP
 		Seu IPv6 é: $buscaIP6" | ./telegram-notify --text -
 	fi
 	sleep 5s
