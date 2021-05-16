@@ -32,6 +32,16 @@ checkDependencies() {
     exit 1
   fi
 }
+
+if [[ $(uname -m | cut -c -3) = "arm" ]]; then
+	armtemp=$(cat /sys/class/thermal/thermal_zone0/temp)
+	cvalue=$(python -c "print($armtemp / 1000)")
+	echo -e "
+	\033[01mA temperatura média do processador é \033[01;31m$cvalueºC\033[00m
+	"
+	exit 0
+fi
+
 checkDependencies # Chamada da função
 
 # Busca da quantidade de Core para o cálculo correto
