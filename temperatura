@@ -35,9 +35,9 @@ checkDependencies() {
 
 if [[ $(uname -m | cut -c -3) = "arm" ]]; then
 	armtemp=$(cat /sys/class/thermal/thermal_zone0/temp)
-	cvalue=$(python -c "print($armtemp / 1000)")
+	cvalue=$(python -c "print($armtemp / 1000.0)")
 	echo -e "
-	\033[01mA temperatura média do processador é \033[01;31m$cvalueºC\033[00m
+	\033[01mA temperatura do processador é \033[01;31m$cvalueºC\033[00m
 	"
 	exit 0
 fi
