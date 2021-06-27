@@ -9,6 +9,7 @@
 # Versãõ 1.3 - Correção de core/thread.
 # Versão 1.4 - Adição de opções de ajuda e forma de exibição da temperatura.
 # Versão 1.5 - Opções de ajuda contempla também em arquitetura ARM.
+# Versão 1.6 - Adição de erro quando executado em VM mesmo com as dependências ok
 #
 # Criado por Marangão - Maio 05, 2021
 # juniormarangao@gmail.com
@@ -54,6 +55,12 @@ rodaArm() {
 
 rodaCore() {
 	checkDependencies # Chamada da função
+
+	sensors >& /dev/null
+        if [[ $? -eq "1" ]]; then
+                echo -e "\n\033[01;31mNÃO FORAM DETECTADOS SENSORES\033[00m\n"
+                exit 1
+        fi
 
 	# Busca da quantidade de Core para o cálculo correto
 	qtdCPU=$(lscpu | sed -n '1,/CPU(s)/{s/CPU(s)\: \+ //gp}')
