@@ -10,6 +10,7 @@
 # Versão 1.4 - Adição de opções de ajuda e forma de exibição da temperatura.
 # Versão 1.5 - Opções de ajuda contempla também em arquitetura ARM.
 # Versão 1.6 - Adição de erro quando executado em VM mesmo com as dependências ok
+# Versão 1.6 - Correção em caso de arquitetura 64bit ARM (aarch64)
 #
 # Criado por Marangão - Maio 05, 2021
 # juniormarangao@gmail.com
@@ -43,7 +44,7 @@ checkDependencies() {
 
 rodaArm() {
 
-	if [[ $(uname -m | cut -c -3) = "arm" ]]; then
+	if [[ $(uname -m | cut -c -3) = "arm" || "aar" ]]; then
 		armtemp=$(cat /sys/class/thermal/thermal_zone0/temp)
 		media=$(python -c "print($armtemp / 1000.0)")
 		#echo -e "
@@ -92,7 +93,7 @@ case "$@" in
 		exit 0
 	;;
 	-jn|--just-number)
-		if [[ $(uname -m | cut -c -3) = "arm" ]]; then
+		if [[ $(uname -m | cut -c -3) = "arm" || "aar" ]]; then
 			rodaArm
 		else
 			rodaCore
@@ -102,7 +103,7 @@ case "$@" in
 	;;
 	*)
 		if [[ -z "$@" ]]; then
-			if [[ $(uname -m | cut -c -3) = "arm" ]]; then
+			if [[ $(uname -m | cut -c -3) = "arm" || "aar" ]]; then
 				rodaArm
 			else
 				rodaCore
