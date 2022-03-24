@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+if ! which bc 2> /dev/null ; then echo -e "\nNecessário instalar BC\n"; exit 1; fi
+
+clear
+read -p "Qual seu aporte mensal? " aporteinit
+aporteinit=$(sed 's/\,/\./g' <<< $aporteinit)
+aporteinit=$(cut -d '.' -f1 <<< $aporteinit)
+i=0
+while (( $i < 1 )); do
+       	if ! [[ "$aporteinit" =~ ^[0-9]+$ ]]; then
+		echo "Precisa inserir números"
+		read -p "Qual seu aporte mensal? " aporteinit
+		aporteinit=$(sed 's/\,/\./g' <<< $aporteinit)
+		aporteinit=$(cut -d '.' -f1 <<< $aporteinit)
+	else
+		i=1
+	fi
+done
+read -p "Quanto você quer receber de dividendos? " dividendos
+dividendos=$(sed 's/\,/\./g' <<< $dividendos)
+dividendos=$(cut -d '.' -f1 <<< $dividendos)
+i=0
+while (( $i < 1 )); do
+	if ! [[ "$dividendos" =~ ^[0-9]+$ ]]; then
+		echo "Precisa inserir números"
+		read -p "Quanto você quer receber de dividendos? " dividendos
+		dividendos=$(sed 's/\,/\./g' <<< $dividendos)
+	       	dividendos=$(cut -d '.' -f1 <<< $dividendos)
+	else
+		i=1
+	fi
+done
+read -p "Qual é a média de juros mensal? % " jurosmes
+jurosmes=$(sed 's/\,/\./g' <<< $jurosmes)
+i=0
+while (( $i < 1 )); do
+	if ! [[ "$jurosmes" =~ ^[0-9]+\.[0-9]+$ ]]; then
+		echo "Precisa inserir números"
+		read -p "Qual é a média de juros mensal? % " jurosmes
+		jurosmes=$(sed 's/\,/\./g' <<< $jurosmes)
+	else
+		i=1
+	fi
+done
+valor=0
+meses=1
+aporte="$aporteinit"
+while (( "$(cut -d '.' -f1 <<< $valor)"<"$dividendos")); do
+	valor=$(bc -l <<< "$aporte*($jurosmes/100)")
+	aporteseq=$(bc <<< "scale=2;$aporte+$valor")
+	aporte=$(bc <<< "scale=2;$aporteseq+$aporteinit")
+	if [[ -z "$soma" ]]; then soma=0; fi
+	valor=$(bc <<< "scale=2;$soma+$valor")
+	meses=$(bc <<< "$meses+1")
+	aportado=$(bc -l <<< "$aporteinit*$meses")
+	if [[ -z "$rendimento" ]]; then rendimento="$valor"; fi
+	rendimento=$(bc <<< "scale=2;$valor+$rendimento")
+	if [[ -z "$(cut -d '.' -f1 <<< $valor)" ]]; then valor=$(sed 's/^/0/g' <<< $valor); fi
+done
+meses=$(bc <<< "$meses-1")
+echo -e "
+Serão necessários \033[01;31m$meses\033[00m meses para chegar ao seu dividendo de \033[01;31m$dividendos\033[00m reais mensais.
+Total de aportes acumulados \033[01;31m$aportado\033[00m reais.
+Rendimento acumulado \033[01;31m$(printf "%.2f \n" $rendimento)\033[00m reais.
+Seu total investido fica \033[01;31m$(printf "%.2f \n" $aporte)\033[00m reais.
+"
+
