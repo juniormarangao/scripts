@@ -82,6 +82,7 @@ case "$@" in
 	-h|--help)
 		echo "
 		-h	--help			Ajuda
+		-V	--version		Mostra versão do programa
 		-jn	--just-number		Imprime apenas o valor numérico da temperatura
 		"
 		exit 0
@@ -95,6 +96,10 @@ case "$@" in
 			rodaCore
 		fi
 		echo $media
+		exit 0
+	;;
+	-V|--version)
+		echo -e "$basename $(grep '^# Versão ' "$0" | tail -1 | cut -d ':' -f1 | tr -d \# | cut -d '-' -f1)"
 		exit 0
 	;;
 	*)
