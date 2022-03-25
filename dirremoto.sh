@@ -29,32 +29,6 @@ if [[ $(id -u) -ne 0 ]]; then
 	exit 1
 fi
 
-#########################################################################
-######### ERRO NO TRECHO / ESTUDAR MAIS #########
-#readonly DEPENDENCIES=(cifs)
-
-#checkDependencies() {
-#	local errorFound=0
-#
-#	for command in "${DEPENDENCIES[@]}"; do
-#		if ! which "$command" > /dev/null; then
-#			echo -e "\nERRO: comando não encontrado '$command'" >&2
-#			errorFound=1
-#		fi
-#	done
-#
-#	if [[ "$errorFound" -ne "0" ]]; then
-#		echo -e "\n----- IMPOSSÍVEL CONTINUAR -----"
-#		echo "Esse script precisa dos comandos listados acima" >&2
-#		echo "Instale-os e/ou verifique se estão no seu \$PATH" >&2
-#		exit 1
-#	fi
-#}
-#
-#
-#	checkDependencies
-#########################################################################
-
 read -p "Entre com o diretorio remoto: " remoteDir # Não precisa usar "//" no início
 read -p "Informe o usuário: " remoteUser
 echo "Informe a senha: "
@@ -65,18 +39,18 @@ read -p "Informe a porta, se houver: " port
 
 [[ "$port" ]] || port="445" # Se não inserir porta, define como padrão 445
 
-######### VERIFICA SEM TEM "/" NO FINAL E REMOVENDO SE TIVER #########
-echo "$mountDir" > pontodemontagem.txt # CRIA TEMPORARIAMENTE ARQUIVO
-if [[ "$(grep -o '.$' pontodemontagem.txt)" = "/" ]]; then
-	mountDir=$(sed 's/.$//g' pontodemontagem.txt)
+# Verificando as barras "//" iniciais de host remoto
+if [[ "$(grep -o '^..' <<< "$remoteDir")" != "//" ]]; then
+	remoteDir=$(sed 's/^/\/\//g' <<< "$remoteDir")
 fi
-rm pontodemontagem.txt # REMOVE ARQUIVO CRIADO TEMPORARIAMENTE
+
+# Verifica barra "/" no final e remover se houver
+if [[ "$(grep -o '.$' <<< $mountDir)" = "/" ]]; then
+	mountDir=$(sed 's/.$//g' <<< $mountDir)
+fi
 
 mountedDir=$(df -h | grep "$mountDir" | cut -d '%' -f2 | cut -d ' ' -f2)
 mounted=$(df -h | grep "$mountDir")
-
-#test "$mountDir" = "$mountedDir" \
-#	&& { echo -e "\nJá está montado\n$mounted\n" ; exit 0 ;}
 
 if [[ "$mountDir" = "$mountedDir" ]]; then
 	echo -e "\nJá está montado\n$mounted\n"
@@ -85,9 +59,14 @@ fi
 
 if [ -e $mountDir ]; then
 	echo -e "\nMontando diretório remoto"
-	mount -t cifs -o username="$remoteUser",password="$remotePass",port="$port" //"$remoteDir" "$mountDir"
-	echo -e "Montado com sucesso: $(df -h | grep $mountDir) \n"
-	exit 0
+	mount -t cifs -o username="$remoteUser",password="$remotePass",port="$port" "$remoteDir" "$mountDir"
+	if [[ "$?" -eq "0" ]]; then
+		echo -e "Montado com sucesso: $(df -h | grep $mountDir) \n"
+		exit 0
+	else
+		echo -e "Algo deu errado. Verifique!"
+		exit 1
+	fi
 else
 	read -p "Diretório não existe. Deseja criar? [S/N]: " confirm
 	case "$confirm" in
@@ -107,5 +86,11 @@ else
 fi
 
 echo -e "\nMontando diretório remoto..."
-mount -t cifs -o username="$remoteUser",password="$remotePass",port="$port" //"$remoteDir" "$mountDir"
-echo -e "Montado com sucesso: $(df -h | grep "$mountDir") \n"
+mount -t cifs -o username="$remoteUser",password="$remotePass",port="$port" "$remoteDir" "$mountDir"
+if [[ "$?" -eq "0" ]]; then
+	echo -e "Montado com sucesso: $(df -h | grep "$mountDir") \n"
+	exit 0
+else
+	echo "Algo deu errado. Verifique!"
+	exit 1
+fi
