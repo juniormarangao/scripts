@@ -13,6 +13,7 @@
 # Versão 1.6 -	Correção em caso de arquitetura 64bit ARM (aarch64)
 # Versão 2.0 -	Substituição do uso do Python para BC.
 #		Correção de checagem de arquitetura de processador.
+# Versão 2.1 -	Correção no cálculo de multi-core
 #
 # Criado por Marangão - Maio 05, 2021
 # juniormarangao@gmail.com
@@ -60,14 +61,15 @@ rodaCore() {
 	qtdCPU=$(lscpu | sed -n '1,/CPU(s)/{s/CPU(s)\: \+ //gp}')
 
 	# Loop para soma da temperatura de cada Core.
-	for (( i=0; i<"$qtdCPU"; i++ )); do
-		core=$(sensors | grep "Core $i:" | cut -d '(' -f1 | cut -d '+' -f2 | cut -d 'C' -f1 | sed 's/.$//g')
+	for (( i=1; i<"$qtdCPU"; i++ )); do
+		#core=$(sensors | grep "Core $i:" | cut -d '(' -f1 | cut -d '+' -f2 | cut -d 'C' -f1 | sed 's/.$//g')
+		core=$(sensors | grep -iw core | awk '{print $3}' | tr -d \+C | sed 's/.$//g' | sed -n ''"$i"'p')
 		if [[ -z $soma ]]; then
 			soma=0
 		fi
 		# Chamada do bc para cálculo de pontos flutuantes.
 		if [[ -z $core ]]; then
-			qtdCPU=($i + 1)
+			qtdCPU=($i)
 		else
 			soma=$(bc -l <<< "$core+$soma")
 		fi
