@@ -14,110 +14,188 @@
 # Versão 2.0 -	Substituição do uso do Python para BC.
 #		Correção de checagem de arquitetura de processador.
 # Versão 2.1 -	Correção no cálculo de multi-core.
+# Versao 2.2 -	Melhoria com GPT e suporte a multilanguage.
 #
 # Criado por Marangão - Maio 05, 2021
 # juniormarangao@gmail.com
 #
 # Licensa GPL
 #
-# Exemplo de uso:
-# 
 
 basename="$0"
 
-readonly DEPENDENCIES=(sed grep sensors cut bc) # array de checagem
+DEFAULT_LANG="en"
+USER_LANG="$DEFAULT_LANG"
+SHOW_HELP=false
+SHOW_VERSION=false
+JUST_NUMBER=false
+UNRECOGNIZED_ARGS=()
 
-checkDependencies() {
-  local errorFound=0
+# Verifica argumentos
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) SHOW_HELP=true ;;
+    -V|--version) SHOW_VERSION=true ;;
+    -jn|--just-number) JUST_NUMBER=true ;;
+    --lang=*) USER_LANG="${arg#--lang=}" ;;
+    *) UNRECOGNIZED_ARGS+=("$arg") ;;
+  esac
+done
 
-  for command in "${DEPENDENCIES[@]}"; do
-    if ! which "$command" > /dev/null ; then
-      echo "ERRO: Comando não encontrado '$command'" >&2
-      errorFound=1
+# Normaliza idioma
+USER_LANG=${USER_LANG%%_*}
+USER_LANG=${USER_LANG,,}
+SUPPORTED_LANGS=(en pt es fr de zh)
+if [[ ! " ${SUPPORTED_LANGS[@]} " =~ " $USER_LANG " ]]; then
+  USER_LANG="$DEFAULT_LANG"
+fi
+
+declare -A MSG
+# Mensagens traduzidas
+# Inglês
+MSG[en_USAGE]="Usage: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[en_HELP]="This script displays the average CPU temperature."
+MSG[en_ERROR_DEP]="Missing dependency:"
+MSG[en_CANT_CONTINUE]="---UNABLE TO CONTINUE--- Check dependencies."
+MSG[en_CPU_TEMP]="Average CPU temperature is:"
+MSG[en_INVALID]="Invalid option, use -h or --help for help."
+MSG[en_NO_SENSORS]="SENSORS NOT DETECTED - POSSIBLE VM ENVIRONMENT"
+
+# Português
+MSG[pt_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[pt_HELP]="Este script exibe a temperatura média da CPU."
+MSG[pt_ERROR_DEP]="Dependência ausente:"
+MSG[pt_CANT_CONTINUE]="---IMPOSSÍVEL CONTINUAR--- Verifique as dependências."
+MSG[pt_CPU_TEMP]="A temperatura média do processador é:"
+MSG[pt_INVALID]="Opção inválida, use -h ou --help para ajuda."
+MSG[pt_NO_SENSORS]="SENSORES NÃO DETECTADOS - POSSÍVEL AMBIENTE VIRTUAL"
+
+# Espanhol
+MSG[es_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[es_HELP]="Este script muestra la temperatura media de la CPU."
+MSG[es_ERROR_DEP]="Dependencia faltante:"
+MSG[es_CANT_CONTINUE]="---NO SE PUEDE CONTINUAR--- Verifique las dependencias."
+MSG[es_CPU_TEMP]="La temperatura media de la CPU es:"
+MSG[es_INVALID]="Opcion invalida, use -h o --help para ayuda."
+MSG[es_NO_SENSORS]="SENSORES NO DETECTADOS - POSIBLE ENTORNO VIRTUAL"
+
+# Francês
+MSG[fr_USAGE]="Utilisation: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[fr_HELP]="Ce script affiche la température moyenne du processeur."
+MSG[fr_ERROR_DEP]="Dépendance manquante:"
+MSG[fr_CANT_CONTINUE]="---IMPOSSIBLE DE CONTINUER--- Vérifiez les dépendances."
+MSG[fr_CPU_TEMP]="La température moyenne du processeur est:"
+MSG[fr_INVALID]="Option invalide, utilisez -h ou --help pour l'aide."
+MSG[fr_NO_SENSORS]="CAPTEURS NON DÉTECTÉS - ENVIRONNEMENT VIRTUEL POSSIBLE"
+
+# Alemão
+MSG[de_USAGE]="Verwendung: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[de_HELP]="Dieses Skript zeigt die durchschnittliche CPU-Temperatur an."
+MSG[de_ERROR_DEP]="Fehlende Abhängigkeit:"
+MSG[de_CANT_CONTINUE]="---KANN NICHT FORTFAHREN--- Überprüfen Sie die Abhängigkeiten."
+MSG[de_CPU_TEMP]="Durchschnittliche CPU-Temperatur ist:"
+MSG[de_INVALID]="Ungültige Option, verwenden Sie -h oder --help für Hilfe."
+MSG[de_NO_SENSORS]="SENSOREN NICHT ERKANNT - MÖGLICHE VM-UMGEBUNG"
+
+# Chinês simplificado
+MSG[zh_USAGE]="用法: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[zh_HELP]="本脚本用于显示 CPU 平均温度."
+MSG[zh_ERROR_DEP]="缺少依赖项:"
+MSG[zh_CANT_CONTINUE]="---无法继续--- 请检查依赖项."
+MSG[zh_CPU_TEMP]="CPU 平均温度为:"
+MSG[zh_INVALID]="无效选项，请使用 -h 或 --help 获取帮助."
+MSG[zh_NO_SENSORS]="未检测到传感器 - 可能是虚拟机环境"
+
+
+#MSG[en_USAGE]="Usage: $basename [--help] [--version] [--just-number] [--lang=xx]"
+#MSG[en_HELP]="This script displays the average CPU temperature."
+#MSG[en_ERROR_DEP]="Missing dependency:"
+#MSG[en_CANT_CONTINUE]="---UNABLE TO CONTINUE--- Check dependencies."
+#MSG[en_CPU_TEMP]="Average CPU temperature is:"
+#MSG[en_INVALID]="Invalid option, use -h or --help for help."
+
+print_help() {
+  echo "${MSG[${USER_LANG}_USAGE]}"
+  echo "${MSG[${USER_LANG}_HELP]}"
+}
+
+print_error() {
+  echo "${MSG[${USER_LANG}_INVALID]}" >&2
+}
+
+print_version() {
+  echo "temperatura.sh version 2.2"
+}
+
+check_dependencies() {
+  local deps=(sensors awk bc grep sed cut)
+  local missing=()
+  for dep in "${deps[@]}"; do
+    if ! command -v "$dep" &>/dev/null; then
+      echo "${MSG[${USER_LANG}_ERROR_DEP]} $dep"
+      missing+=("$dep")
     fi
   done
-
-  if [[ "$errorFound" != "0" ]]; then # Teste de error
-    echo "---IMPOSSÍVEL CONTINUAR---"
-    echo "Esse script precisa dos comandos listados acima" >&2
-    echo "Instale-os e/ou verifique se estão no seu \$PATH" >&2
+  if (( ${#missing[@]} > 0 )); then
+    echo "${MSG[${USER_LANG}_CANT_CONTINUE]}"
     exit 1
   fi
 }
 
-rodaArm() {
-	armtemp=$(cat /sys/class/thermal/thermal_zone0/temp)
-	media=$(bc <<< "scale=2;$armtemp/1000.0")
+get_temp_arm() {
+  if [[ -r /sys/class/thermal/thermal_zone0/temp ]]; then
+    raw_temp=$(< /sys/class/thermal/thermal_zone0/temp)
+    echo "scale=2; $raw_temp / 1000.0" | bc
+  else
+    echo "N/A"
+  fi
 }
 
-rodaCore() {
-	checkDependencies # Chamada da função
-        if ! sensors > /dev/null ; then # Detecção de sensores, se for VM mesmo instalado não funciona.
-                echo -e "\n\033[01;31mNÃO FORAM DETECTADOS SENSORES - POSSIVEL VM\033[00m\n"
-                exit 1
-        fi
+get_temp_core() {
+  check_dependencies
+  if ! sensors &>/dev/null; then
+    echo -e "\n\033[01;31m${MSG[${USER_LANG}_NO_SENSORS]}\033[00m\n"
+    exit 1
+  fi
+  local temps=()
+  while IFS= read -r temp; do
+    temps+=("$temp")
+  done < <(sensors | awk '/Core/ {gsub("\\+|°C", "", $3); print $3}')
 
-	# Busca da quantidade de Core para o cálculo correto
-	qtdCPU=$(lscpu | sed -n '1,/CPU(s)/{s/CPU(s)\: \+ //gp}')
-
-	# Loop para soma da temperatura de cada Core.
-	for (( i=1; i<="$qtdCPU"; i++ )); do
-		#core=$(sensors | grep "Core $i:" | cut -d '(' -f1 | cut -d '+' -f2 | cut -d 'C' -f1 | sed 's/.$//g')
-		core=$(sensors | grep -iw core | awk '{print $3}' | tr -d \+C | sed 's/.$//g' | sed -n ''"$i"'p')
-		if [[ -z $soma ]]; then
-			soma=0
-		fi
-		# Chamada do bc para cálculo de pontos flutuantes.
-		if [[ -z $core ]]; then
-			qtdCPU=($i)
-		else
-			soma=$(bc -l <<< "$core+$soma")
-		fi
-	done
-
-	# Chamada do bc para cálculo de pontos flutuantes
-	media=$(bc <<< "scale=2;$soma/$qtdCPU")
+  local sum=0
+  for t in "${temps[@]}"; do
+    sum=$(bc -l <<< "$sum + $t")
+  done
+  local count=${#temps[@]}
+  [[ $count -eq 0 ]] && echo "N/A" || echo "scale=2; $sum / $count" | bc
 }
 
-cpuarch=$(uname -m)
-case "$@" in
-	-h|--help)
-		echo "
-		-h	--help			Ajuda
-		-V	--version		Mostra versão do programa
-		-jn	--just-number		Imprime apenas o valor numérico da temperatura
-		"
-		exit 0
-	;;
-	-jn|--just-number)
-		if [[ $(cut -c -3 <<< $cpuarch) = "arm" ]]; then
-			rodaArm
-		elif [[ $(cut -c -3 <<< $cpuarch) = "aar" ]]; then
-			rodaArm
-		else
-			rodaCore
-		fi
-		echo $media
-		exit 0
-	;;
-	-V|--version)
-		echo -e "$basename $(grep '^# Versão ' "$0" | tail -1 | cut -d ':' -f1 | tr -d \# | cut -d '-' -f1)"
-		exit 0
-	;;
-	*)
-		if [[ -z "$@" ]]; then
-			if [[ $(cut -c -3 <<< $cpuarch) = "arm" ]]; then
-				rodaArm
-			elif [[ $(cut -c -3 <<< $cpuarch) = "aar" ]]; then
-				rodaArm
-			else
-				rodaCore
-			fi
-			echo -e "\n\033[01mA temperatura média do processador é \033[01;31m$mediaºC\033[00m\n"
-			exit 0
-		else
-			echo -e "\n\033[01mInválido, use \033[01;31m$basename -h\033[00m \033[01mou \033[01;31m$basename --help\033[00m \033[01mpara ajuda\033[00m\n"
-			exit 1
-		fi
-esac
+print_temperature() {
+  local arch=$(uname -m)
+  local temp
+  if [[ "$arch" == arm* || "$arch" == aarch64 ]]; then
+    temp=$(get_temp_arm)
+  else
+    temp=$(get_temp_core)
+  fi
+
+  if [[ "$JUST_NUMBER" == true ]]; then
+    echo "$temp"
+  else
+    echo -e "\n${MSG[${USER_LANG}_CPU_TEMP]} \033[1;31m${temp}°C\033[0m\n"
+  fi
+}
+
+if [[ "$SHOW_HELP" == true ]]; then
+  print_help
+  exit 0
+elif [[ "$SHOW_VERSION" == true ]]; then
+  print_version
+  exit 0
+elif (( ${#UNRECOGNIZED_ARGS[@]} > 0 )); then
+  print_error
+  exit 1
+else
+  print_temperature
+fi
 
