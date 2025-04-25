@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-#
 # Script para calcular média de temperatura da CPU usando informações
-# obtidas através do comando "sensors" (pacote lm-sensor)
+# obtidas através do comando "sensors" (pacote lm-sensors) ou thermal_zone (ARM)
 #
 # Versão 1.0
 # Versão 1.1 -	Adicionado verificação para arquitetura ARM
@@ -15,21 +14,49 @@
 #		Correção de checagem de arquitetura de processador.
 # Versão 2.1 -	Correção no cálculo de multi-core.
 # Versao 2.2 -	Melhoria com GPT e suporte a multilanguage.
-#
+# Versão 2.6 - Adicionada verificação de permissões no log com fallback para $HOME
+#              Traduzida mensagem de erro do log para todos os idiomas
+#              Otimizados cálculos com awk para menos chamadas
 # Criado por Marangão - Maio 05, 2021
 # juniormarangao@gmail.com
+# Licença GPL
 #
-# Licensa GPL
-#
+# Uso: $0 [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=segundos] [--no-color]
 
 basename="$0"
-
 DEFAULT_LANG="en"
 USER_LANG="$DEFAULT_LANG"
 SHOW_HELP=false
 SHOW_VERSION=false
 JUST_NUMBER=false
+FORMAT="text"
+UNIT="c"
+UNIT_SYMBOL="°C"
+INTERVAL=0
+COLOR=true
 UNRECOGNIZED_ARGS=()
+LOG_FILE="/var/log/temperatura.log"
+
+# Traduções para mensagem de saída
+declare -A EXIT_MSG
+EXIT_MSG[en]="Exiting..."
+EXIT_MSG[pt]="Saindo..."
+EXIT_MSG[es]="Saliendo..."
+EXIT_MSG[fr]="Quitter..."
+EXIT_MSG[de]="Beenden..."
+EXIT_MSG[zh]="退出..."
+
+# Traduções para erro de log
+declare -A LOG_ERROR_MSG
+LOG_ERROR_MSG[en]="Failed to access log at %s. Check permissions."
+LOG_ERROR_MSG[pt]="Falha ao acessar o log em %s. Verifique permissões."
+LOG_ERROR_MSG[es]="No se pudo acceder al log en %s. Verifique permisos."
+LOG_ERROR_MSG[fr]="Échec de l'accès au journal à %s. Vérifiez les permissions."
+LOG_ERROR_MSG[de]="Zugriff auf Log bei %s fehlgeschlagen. Überprüfen Sie die Berechtigungen."
+LOG_ERROR_MSG[zh]="无法访问 %s 的日志。请检查权限。"
+
+# Configura trap para interrupções
+trap 'echo -e "\n${EXIT_MSG[${USER_LANG}]}"; exit 0' SIGINT SIGTERM
 
 # Verifica argumentos
 for arg in "$@"; do
@@ -38,81 +65,102 @@ for arg in "$@"; do
     -V|--version) SHOW_VERSION=true ;;
     -jn|--just-number) JUST_NUMBER=true ;;
     --lang=*) USER_LANG="${arg#--lang=}" ;;
+    --unit=*) UNIT="${arg#--unit=}" ;;
+    --json) FORMAT="json" ;;
+    --interval=*) INTERVAL="${arg#--interval=}" ;;
+    --no-color) COLOR=false ;;
     *) UNRECOGNIZED_ARGS+=("$arg") ;;
   esac
 done
 
 # Normaliza idioma
-USER_LANG=${USER_LANG%%_*}
-USER_LANG=${USER_LANG,,}
+USER_LANG=${USER_LANG%%_*}  # Remove sufixos como _BR
+USER_LANG=${USER_LANG,,}    # Converte para minúsculas
 SUPPORTED_LANGS=(en pt es fr de zh)
-if [[ ! " ${SUPPORTED_LANGS[@]} " =~ " $USER_LANG " ]]; then
+if [[ ! " ${SUPPORTED_LANGS[*]} " =~ " $USER_LANG " ]]; then
   USER_LANG="$DEFAULT_LANG"
 fi
 
-declare -A MSG
+# Normaliza unidade
+UNIT=${UNIT,,}
+case "$UNIT" in
+  c) UNIT="c"; UNIT_SYMBOL="°C" ;;
+  f) UNIT="f"; UNIT_SYMBOL="°F" ;;
+  k) UNIT="k"; UNIT_SYMBOL="K" ;;
+  *) UNIT="c"; UNIT_SYMBOL="°C" ;;
+esac
+
+# Valida intervalo
+if [[ ! "$INTERVAL" =~ ^[0-9]+$ ]]; then
+  INTERVAL=0
+fi
+
+# Verifica permissões do log
+check_log_permissions() {
+  if ! touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="$HOME/temperatura.log"
+    if ! touch "$LOG_FILE" 2>/dev/null; then
+      printf "${LOG_ERROR_MSG[${USER_LANG}]}\n" "$LOG_FILE" >&2
+      return 1
+    fi
+  fi
+}
+
 # Mensagens traduzidas
+declare -A MSG
 # Inglês
-MSG[en_USAGE]="Usage: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[en_USAGE]="Usage: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=seconds] [--no-color]"
 MSG[en_HELP]="This script displays the average CPU temperature."
 MSG[en_ERROR_DEP]="Missing dependency:"
 MSG[en_CANT_CONTINUE]="---UNABLE TO CONTINUE--- Check dependencies."
 MSG[en_CPU_TEMP]="Average CPU temperature is:"
 MSG[en_INVALID]="Invalid option, use -h or --help for help."
-MSG[en_NO_SENSORS]="SENSORS NOT DETECTED - POSSIBLE VM ENVIRONMENT"
+MSG[en_NO_SENSORS]="No temperature sensors detected in virtual machine environment."
 
 # Português
-MSG[pt_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[pt_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=segundos] [--no-color]"
 MSG[pt_HELP]="Este script exibe a temperatura média da CPU."
 MSG[pt_ERROR_DEP]="Dependência ausente:"
 MSG[pt_CANT_CONTINUE]="---IMPOSSÍVEL CONTINUAR--- Verifique as dependências."
 MSG[pt_CPU_TEMP]="A temperatura média do processador é:"
 MSG[pt_INVALID]="Opção inválida, use -h ou --help para ajuda."
-MSG[pt_NO_SENSORS]="SENSORES NÃO DETECTADOS - POSSÍVEL AMBIENTE VIRTUAL"
+MSG[pt_NO_SENSORS]="Nenhum sensor de temperatura detectado em ambiente de máquina virtual."
 
 # Espanhol
-MSG[es_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[es_USAGE]="Uso: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=segundos] [--no-color]"
 MSG[es_HELP]="Este script muestra la temperatura media de la CPU."
 MSG[es_ERROR_DEP]="Dependencia faltante:"
 MSG[es_CANT_CONTINUE]="---NO SE PUEDE CONTINUAR--- Verifique las dependencias."
 MSG[es_CPU_TEMP]="La temperatura media de la CPU es:"
-MSG[es_INVALID]="Opcion invalida, use -h o --help para ayuda."
-MSG[es_NO_SENSORS]="SENSORES NO DETECTADOS - POSIBLE ENTORNO VIRTUAL"
+MSG[es_INVALID]="Opción inválida, use -h o --help para ayuda."
+MSG[es_NO_SENSORS]="No se detectaron sensores de temperatura en un entorno de máquina virtual."
 
 # Francês
-MSG[fr_USAGE]="Utilisation: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[fr_USAGE]="Utilisation: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=secondes] [--no-color]"
 MSG[fr_HELP]="Ce script affiche la température moyenne du processeur."
 MSG[fr_ERROR_DEP]="Dépendance manquante:"
 MSG[fr_CANT_CONTINUE]="---IMPOSSIBLE DE CONTINUER--- Vérifiez les dépendances."
 MSG[fr_CPU_TEMP]="La température moyenne du processeur est:"
 MSG[fr_INVALID]="Option invalide, utilisez -h ou --help pour l'aide."
-MSG[fr_NO_SENSORS]="CAPTEURS NON DÉTECTÉS - ENVIRONNEMENT VIRTUEL POSSIBLE"
+MSG[fr_NO_SENSORS]="Aucun capteur de température détecté dans un environnement de machine virtuelle."
 
 # Alemão
-MSG[de_USAGE]="Verwendung: $basename [--help] [--version] [--just-number] [--lang=xx]"
+MSG[de_USAGE]="Verwendung: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=Sekunden] [--no-color]"
 MSG[de_HELP]="Dieses Skript zeigt die durchschnittliche CPU-Temperatur an."
 MSG[de_ERROR_DEP]="Fehlende Abhängigkeit:"
 MSG[de_CANT_CONTINUE]="---KANN NICHT FORTFAHREN--- Überprüfen Sie die Abhängigkeiten."
 MSG[de_CPU_TEMP]="Durchschnittliche CPU-Temperatur ist:"
 MSG[de_INVALID]="Ungültige Option, verwenden Sie -h oder --help für Hilfe."
-MSG[de_NO_SENSORS]="SENSOREN NICHT ERKANNT - MÖGLICHE VM-UMGEBUNG"
+MSG[de_NO_SENSORS]="Keine Temperatursensoren in einer virtuellen Maschinenumgebung erkannt."
 
 # Chinês simplificado
-MSG[zh_USAGE]="用法: $basename [--help] [--version] [--just-number] [--lang=xx]"
-MSG[zh_HELP]="本脚本用于显示 CPU 平均温度."
+MSG[zh_USAGE]="用法: $basename [--help] [--version] [--just-number] [--lang=xx] [--unit=c|f|k] [--json] [--interval=秒] [--no-color]"
+MSG[zh_HELP]="本脚本用于显示 CPU 平均温度。"
 MSG[zh_ERROR_DEP]="缺少依赖项:"
-MSG[zh_CANT_CONTINUE]="---无法继续--- 请检查依赖项."
+MSG[zh_CANT_CONTINUE]="---无法继续--- 请检查依赖项。"
 MSG[zh_CPU_TEMP]="CPU 平均温度为:"
-MSG[zh_INVALID]="无效选项，请使用 -h 或 --help 获取帮助."
-MSG[zh_NO_SENSORS]="未检测到传感器 - 可能是虚拟机环境"
-
-
-#MSG[en_USAGE]="Usage: $basename [--help] [--version] [--just-number] [--lang=xx]"
-#MSG[en_HELP]="This script displays the average CPU temperature."
-#MSG[en_ERROR_DEP]="Missing dependency:"
-#MSG[en_CANT_CONTINUE]="---UNABLE TO CONTINUE--- Check dependencies."
-#MSG[en_CPU_TEMP]="Average CPU temperature is:"
-#MSG[en_INVALID]="Invalid option, use -h or --help for help."
+MSG[zh_INVALID]="无效选项，请使用 -h 或 --help 获取帮助。"
+MSG[zh_NO_SENSORS]="在虚拟机环境中未检测到温度传感器。"
 
 print_help() {
   echo "${MSG[${USER_LANG}_USAGE]}"
@@ -124,11 +172,19 @@ print_error() {
 }
 
 print_version() {
-  echo "temperatura.sh version 2.2"
+  echo "$basename version 2.6"
+}
+
+log_error() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE" 2>/dev/null
+  # Rotação de log: mantém últimas 500 linhas se ultrapassar 1000
+  if [[ -f "$LOG_FILE" && $(wc -l < "$LOG_FILE" 2>/dev/null) -gt 1000 ]]; then
+    tail -n 500 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE" 2>/dev/null
+  fi
 }
 
 check_dependencies() {
-  local deps=(sensors awk bc grep sed cut)
+  local deps=(sensors awk grep sed cut)
   local missing=()
   for dep in "${deps[@]}"; do
     if ! command -v "$dep" &>/dev/null; then
@@ -140,34 +196,80 @@ check_dependencies() {
     echo "${MSG[${USER_LANG}_CANT_CONTINUE]}"
     exit 1
   fi
+  # Verifica permissões do log
+  check_log_permissions
 }
 
 get_temp_arm() {
-  if [[ -r /sys/class/thermal/thermal_zone0/temp ]]; then
-    raw_temp=$(< /sys/class/thermal/thermal_zone0/temp)
-    echo "scale=2; $raw_temp / 1000.0" | bc
-  else
+  local thermal_dir="/sys/class/thermal"
+  local temps=()
+  local count=0
+
+  for zone in "$thermal_dir"/thermal_zone*/temp; do
+    if [[ -r "$zone" ]]; then
+      read -r raw_temp < "$zone"
+      if [[ "$raw_temp" =~ ^-?[0-9]+$ ]]; then
+        temp=$(awk "BEGIN {printf \"%.2f\", $raw_temp / 1000}")
+        temps+=("$temp")
+        ((count++))
+      fi
+    fi
+  done
+
+  if [[ $count -eq 0 ]]; then
     echo "N/A"
+    log_error "Nenhuma zona térmica válida encontrada"
+  else
+    # Calcula soma e média em uma única chamada a awk
+    awk -v temps="${temps[*]}" 'BEGIN {
+      split(temps, arr, " ");
+      sum = 0;
+      for (i in arr) sum += arr[i];
+      printf "%.2f", sum / length(arr)
+    }'
   fi
 }
 
 get_temp_core() {
   check_dependencies
-  if ! sensors &>/dev/null; then
-    echo -e "\n\033[01;31m${MSG[${USER_LANG}_NO_SENSORS]}\033[00m\n"
-    exit 1
-  fi
   local temps=()
-  while IFS= read -r temp; do
-    temps+=("$temp")
-  done < <(sensors | awk '/Core/ {gsub("\\+|°C", "", $3); print $3}')
+  local output
+  output=$(sensors 2>/dev/null)
+  if [[ $? -ne 0 ]]; then
+    echo "N/A"
+    log_error "Comando sensors falhou, possível ambiente virtual"
+    return
+  fi
 
-  local sum=0
-  for t in "${temps[@]}"; do
-    sum=$(bc -l <<< "$sum + $t")
-  done
+  mapfile -t temps < <(echo "$output" | grep -E 'Core [0-9]+' | awk '{print $3}' | grep -oP '\+\K[0-9.]+')
   local count=${#temps[@]}
-  [[ $count -eq 0 ]] && echo "N/A" || echo "scale=2; $sum / $count" | bc
+
+  if [[ $count -eq 0 ]]; then
+    echo "N/A"
+    log_error "Nenhum sensor de core detectado"
+    return
+  fi
+
+  # Calcula soma e média em uma única chamada a awk
+  awk -v temps="${temps[*]}" 'BEGIN {
+    split(temps, arr, " ");
+    sum = 0;
+    for (i in arr) sum += arr[i];
+    printf "%.2f", sum / length(arr)
+  }'
+}
+
+convert_temp() {
+  local temp_c=$1
+  if [[ ! "$temp_c" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "N/A"
+    return
+  fi
+  case "$UNIT" in
+    c) echo "$temp_c" ;;
+    f) awk "BEGIN {printf \"%.2f\", $temp_c * 9/5 + 32}" ;;
+    k) awk "BEGIN {printf \"%.2f\", $temp_c + 273.15}" ;;
+  esac
 }
 
 print_temperature() {
@@ -179,12 +281,43 @@ print_temperature() {
     temp=$(get_temp_core)
   fi
 
-  if [[ "$JUST_NUMBER" == true ]]; then
+  if [[ "$temp" == "N/A" || -z "$temp" ]]; then
+    if [[ "$FORMAT" == "json" ]]; then
+      echo "{\"error\": \"${MSG[${USER_LANG}_NO_SENSORS]}\", \"arch\": \"$arch\", \"unit\": \"$UNIT_SYMBOL\"}"
+    elif [[ "$JUST_NUMBER" == true ]]; then
+      echo "N/A"
+    else
+      local msg="${MSG[${USER_LANG}_NO_SENSORS]}"
+      echo -e "\n${COLOR:+\033[01;31m}$msg${COLOR:+\033[00m}\n"
+    fi
+    log_error "Nenhum sensor de temperatura detectado (arch: $arch)"
+    return 1
+  fi
+
+  temp=$(convert_temp "$temp")
+  if [[ "$temp" == "N/A" ]]; then
+    if [[ "$FORMAT" == "json" ]]; then
+      echo "{\"error\": \"${MSG[${USER_LANG}_NO_SENSORS]}\", \"arch\": \"$arch\", \"unit\": \"$UNIT_SYMBOL\"}"
+    elif [[ "$JUST_NUMBER" == true ]]; then
+      echo "N/A"
+    else
+      local msg="${MSG[${USER_LANG}_NO_SENSORS]}"
+      echo -e "\n${COLOR:+\033[01;31m}$msg${COLOR:+\033[00m}\n"
+    fi
+    log_error "Falha ao converter temperatura (arch: $arch)"
+    return 1
+  fi
+
+  if [[ "$FORMAT" == "json" ]]; then
+    echo "{\"temperature\": $temp, \"unit\": \"$UNIT_SYMBOL\", \"arch\": \"$arch\"}"
+  elif [[ "$JUST_NUMBER" == true ]]; then
     echo "$temp"
   else
-    echo -e "\n${MSG[${USER_LANG}_CPU_TEMP]} \033[1;31m${temp}°C\033[0m\n"
+    echo -e "\n${MSG[${USER_LANG}_CPU_TEMP]} ${COLOR:+\033[1;31m}$temp$UNIT_SYMBOL${COLOR:+\033[0m}\n"
   fi
 }
+
+check_dependencies
 
 if [[ "$SHOW_HELP" == true ]]; then
   print_help
@@ -196,6 +329,12 @@ elif (( ${#UNRECOGNIZED_ARGS[@]} > 0 )); then
   print_error
   exit 1
 else
-  print_temperature
+  if [[ "$INTERVAL" -gt 0 ]]; then
+    while true; do
+      print_temperature || break
+      sleep "$INTERVAL"
+    done
+  else
+    print_temperature
+  fi
 fi
-
